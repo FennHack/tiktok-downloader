@@ -209,17 +209,31 @@ bot.on('text', async (ctx) => {
 
         try {
 
-            await ctx.telegram.sendDocument(
-                ctx.chat.id,
-                {
-                    url: videoUrl
-                },
-                {
-                    caption:
-                        `Full Quality\n\n` +
-                        `Owner: @wrrar`
-                }
-            );
+const title =
+    (result.title || 'TikTok Video')
+        .replace(/[\\/:*?"<>|]/g, '')
+        .slice(0, 50);
+
+const author =
+    result.author?.unique_id ||
+    'tiktok';
+
+const filename =
+    `${title} - @${author}.mp4`;
+
+await ctx.telegram.sendDocument(
+    ctx.chat.id,
+    {
+        url: videoUrl,
+        filename: filename
+    },
+    {
+        caption:
+            `${title}\n` +
+            `By: @${author}\n\n` +
+            `Owner: @wrrar`
+    }
+);
 
         } catch (docErr) {
 
