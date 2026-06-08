@@ -11,53 +11,59 @@ module.exports.config = {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ======================
-// Ambil data TikTok
-// ======================
+// =====================================
+// TikTok Fetch
+// =====================================
 
-async function getTikTok(url) {
+async function getTikTokData(url) {
 
     try {
 
         const api =
             `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
 
-        const { data } = await axios.get(api);
+        const response = await axios.get(api, {
+            timeout: 30000
+        });
 
-        if (!data || !data.data) {
+        if (
+            !response.data ||
+            !response.data.data
+        ) {
             return null;
         }
 
-        return data.data;
+        return response.data.data;
 
     } catch (err) {
 
-        console.log('API ERROR:', err.message);
+        console.log('TIKTOK API ERROR:', err.message);
 
         return null;
     }
 }
 
-// ======================
-// START
-// ======================
+// =====================================
+// Start
+// =====================================
 
 bot.start(async (ctx) => {
 
-    await ctx.reply(
-        `TikTok Downloader Bot\n\n` +
+    await ctx.telegram.sendMessage(
+        ctx.chat.id,
+        `TikTok Downloader\n\n` +
         `Support:\n` +
-        `• Video\n` +
-        `• Slideshow\n` +
-        `• Story\n` +
-        `• Owner @wrrar`
+        `- Video\n` +
+        `- Slide\n` +
+        `- Story\n\n` +
+        `Owner: @wrrar`
     );
 
 });
 
-// ======================
-// HANDLE TEXT
-// ======================
+// =====================================
+// Main Handler
+// =====================================
 
 bot.on('text', async (ctx) => {
 
@@ -65,21 +71,58 @@ bot.on('text', async (ctx) => {
 
         const text = ctx.message.text;
 
+        // =========================
+        // Validasi Link
+        // =========================
+
         if (!text.includes('tiktok.com')) {
-            return ctx.reply(' Link TikTok not valid');
+
+            return await ctx.telegram.sendMessage(
+                ctx.chat.id,
+                'Link TikTok tidak valid'
+            );
+
         }
 
-        await ctx.reply('Downloading...');
+        await ctx.telegram.sendMessage(
+            ctx.chat.id,
+            'Processing...'
+        );
 
-        const result = await getTikTok(text);
+        // =========================
+        // Fetch API
+        // =========================
 
+        const result = await getTikTokData(text);
+
+        // Crosscheck 1
         if (!result) {
-            return ctx.reply('Gagal mengambil data');
+
+            return await ctx.telegram.sendMessage(
+                ctx.chat.id,
+                'Gagal mengambil data TikTok'
+            );
+
         }
 
-        // ======================
-        // SLIDESHOW
-        // ======================
+        // Crosscheck 2
+        if (
+            !result.play &&
+            !result.images &&
+            !result.wmplay &&
+            !result.hdplay
+        ) {
+
+            return await ctx.telegram.sendMessage(
+                ctx.chat.id,
+                'Media tidak ditemukan'
+            );
+
+        }
+
+        // =================================
+        // SLIDE
+        // =================================
 
         if (
             Array.isArray(result.images) &&
@@ -89,12 +132,16 @@ bot.on('text', async (ctx) => {
             const media = result.images
                 .slice(0, 10)
                 .map((img, index) => ({
+
                     type: 'photo',
+
                     media: img,
+
                     caption:
                         index === 0
-                            ? ` ${result.title || 'TikTok Slide'}`
+                            ? `${result.title || 'TikTok Slide'}\n\nOwner: @wrrar`
                             : undefined
+
                 }));
 
             await ctx.telegram.sendMediaGroup(
@@ -105,60 +152,84 @@ bot.on('text', async (ctx) => {
             return;
         }
 
-        // ======================
+        // =================================
         // VIDEO / STORY
-        // ======================
+        // =================================
 
         const videoUrl =
             result.play ||
-            result.wmplay ||
-            result.hdplay;
+            result.hdplay ||
+            result.wmplay;
 
         if (videoUrl) {
 
-            await ctx.replyVideo(
-                { url: videoUrl },
+            await ctx.telegram.sendVideo(
+                ctx.chat.id,
+                {
+                    url: videoUrl
+                },
                 {
                     caption:
-                        ` ${result.title || 'TikTok Video'}`
+                        `${result.title || 'TikTok Video'}\n\n` +
+                        `Owner: @wrrar`
                 }
             );
 
             return;
         }
 
-        // ======================
-        // FALLBACK
-        // ======================
+        // =================================
+        // Fallback
+        // =================================
 
-        return ctx.reply(
-            ' Media tidak ditemukan'
+        return await ctx.telegram.sendMessage(
+            ctx.chat.id,
+            'Format media tidak didukung'
         );
 
     } catch (err) {
 
         console.log('BOT ERROR:', err);
 
-        return ctx.reply(
-            ' Terjadi error server'
+        return await ctx.telegram.sendMessage(
+            ctx.chat.id,
+            'Terjadi error server'
         );
     }
 
 });
 
-// ======================
-// WEBHOOK
-// ======================
+// =====================================
+// Webhook
+// =====================================
 
 module.exports = async (req, res) => {
 
     if (req.method === 'GET') {
+
         return res
             .status(200)
-            .send('Bot aktif 🚀');
+            .send('Bot Active');
+
+    }
+
+    if (req.method !== 'POST') {
+
+        return res
+            .status(405)
+            .send('Method Not Allowed');
+
     }
 
     try {
+
+        if (!req.body) {
+
+            return res
+                .status(400)
+                .send('No Body');
+
+        }
 
         await bot.handleUpdate(req.body);
 
@@ -172,6 +243,7 @@ module.exports = async (req, res) => {
 
         return res
             .status(500)
-            .send('ERROR');
+            .send('Internal Server Error');
     }
+
 };
