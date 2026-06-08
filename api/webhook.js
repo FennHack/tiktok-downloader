@@ -11,161 +11,167 @@ module.exports.config = {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ===============================
-// TikTok Downloader
-// ===============================
+// ======================
+// Ambil data TikTok
+// ======================
 
-async function getTikTokData(url) {
+async function getTikTok(url) {
+
     try {
 
         const api =
             `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
 
-        const res = await axios.get(api);
+        const { data } = await axios.get(api);
 
-        if (!res.data || !res.data.data) {
+        if (!data || !data.data) {
             return null;
         }
 
-        return res.data.data;
+        return data.data;
 
     } catch (err) {
 
-        console.log(err);
+        console.log('API ERROR:', err.message);
 
         return null;
     }
 }
 
-// ===============================
-// Start Command
-// ===============================
+// ======================
+// START
+// ======================
 
 bot.start(async (ctx) => {
 
     await ctx.reply(
-        `📥 TikTok Downloader Bot\n\n` +
-        `Kirim link:\n` +
-        `• Video TikTok\n` +
+        `TikTok Downloader Bot\n\n` +
+        `Support:\n` +
+        `• Video\n` +
         `• Slideshow\n` +
-        `• Story TikTok`
+        `• Story\n` +
+        `• Owner @wrrar`
     );
 
 });
 
-// ===============================
-// Handle Message
-// ===============================
+// ======================
+// HANDLE TEXT
+// ======================
 
 bot.on('text', async (ctx) => {
 
-    const text = ctx.message.text;
-
-    // cek link
-    if (!text.includes('tiktok.com')) {
-        return ctx.reply('❌ Itu bukan link TikTok');
-    }
-
-    const wait = await ctx.reply('⏳ Downloading...');
-
     try {
 
-        const data = await getTikTokData(text);
+        const text = ctx.message.text;
 
-        if (!data) {
-            return ctx.reply('❌ Gagal mengambil data TikTok');
+        if (!text.includes('tiktok.com')) {
+            return ctx.reply(' Link TikTok not valid');
         }
 
-        // ===========================
-        // Slideshow
-        // ===========================
+        await ctx.reply('Downloading...');
 
-        if (data.images && data.images.length > 0) {
+        const result = await getTikTok(text);
 
-            const media = data.images.map((img, index) => ({
-                type: 'photo',
-                media: img,
-                caption:
-                    index === 0
-                        ? `📸 ${data.title || 'TikTok Slide'}`
-                        : undefined
-            }));
-
-            await ctx.replyMediaGroup(media);
-
+        if (!result) {
+            return ctx.reply('Gagal mengambil data');
         }
 
-        // ===========================
-        // Video
-        // ===========================
+        // ======================
+        // SLIDESHOW
+        // ======================
 
-        else if (data.play) {
+        if (
+            Array.isArray(result.images) &&
+            result.images.length > 0
+        ) {
+
+            const media = result.images
+                .slice(0, 10)
+                .map((img, index) => ({
+                    type: 'photo',
+                    media: img,
+                    caption:
+                        index === 0
+                            ? ` ${result.title || 'TikTok Slide'}`
+                            : undefined
+                }));
+
+            await ctx.telegram.sendMediaGroup(
+                ctx.chat.id,
+                media
+            );
+
+            return;
+        }
+
+        // ======================
+        // VIDEO / STORY
+        // ======================
+
+        const videoUrl =
+            result.play ||
+            result.wmplay ||
+            result.hdplay;
+
+        if (videoUrl) {
 
             await ctx.replyVideo(
-                { url: data.play },
+                { url: videoUrl },
                 {
                     caption:
-                        `🎬 ${data.title || 'TikTok Video'}\n\n` +
-                        `👤 ${data.author?.nickname || '-'}`
+                        ` ${result.title || 'TikTok Video'}`
                 }
             );
 
+            return;
         }
 
-        else {
+        // ======================
+        // FALLBACK
+        // ======================
 
-            await ctx.reply('❌ Media tidak ditemukan');
-
-        }
-
-        // hapus pesan loading
-        await ctx.deleteMessage(wait.message_id);
+        return ctx.reply(
+            ' Media tidak ditemukan'
+        );
 
     } catch (err) {
 
-        console.log(err);
+        console.log('BOT ERROR:', err);
 
-        await ctx.reply('❌ Terjadi error');
-
+        return ctx.reply(
+            ' Terjadi error server'
+        );
     }
 
 });
 
-// ===============================
-// Webhook Handler
-// ===============================
+// ======================
+// WEBHOOK
+// ======================
 
 module.exports = async (req, res) => {
 
-    // test browser
     if (req.method === 'GET') {
-        return res.status(200).send('Bot aktif 🚀');
-    }
-
-    // hanya POST dari Telegram
-    if (req.method !== 'POST') {
-        return res.status(405).send('Method Not Allowed');
+        return res
+            .status(200)
+            .send('Bot aktif 🚀');
     }
 
     try {
 
-        const update = req.body;
+        await bot.handleUpdate(req.body);
 
-        // debug body kosong
-        if (!update) {
-            return res.status(400).send('No body received');
-        }
-
-        await bot.handleUpdate(update);
-
-        return res.status(200).send('OK');
+        return res
+            .status(200)
+            .send('OK');
 
     } catch (err) {
 
-        console.log(err);
+        console.log('WEBHOOK ERROR:', err);
 
-        return res.status(500).send('Internal Server Error');
-
+        return res
+            .status(500)
+            .send('ERROR');
     }
-
 };
