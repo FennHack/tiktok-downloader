@@ -12,7 +12,7 @@ module.exports.config = {
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // =====================================
-// TikTok Fetch
+// Fetch TikTok Data
 // =====================================
 
 async function getTikTokData(url) {
@@ -26,10 +26,13 @@ async function getTikTokData(url) {
             timeout: 30000
         });
 
-        if (
-            !response.data ||
-            !response.data.data
-        ) {
+        // Crosscheck 1
+        if (!response.data) {
+            return null;
+        }
+
+        // Crosscheck 2
+        if (!response.data.data) {
             return null;
         }
 
@@ -37,14 +40,14 @@ async function getTikTokData(url) {
 
     } catch (err) {
 
-        console.log('TIKTOK API ERROR:', err.message);
+        console.log('API ERROR:', err.message);
 
         return null;
     }
 }
 
 // =====================================
-// Start
+// Start Command
 // =====================================
 
 bot.start(async (ctx) => {
@@ -71,11 +74,13 @@ bot.on('text', async (ctx) => {
 
         const text = ctx.message.text;
 
-        // =========================
-        // Validasi Link
-        // =========================
+        // ============================
+        // Validate URL
+        // ============================
 
-        if (!text.includes('tiktok.com')) {
+        if (
+            !text.includes('tiktok.com')
+        ) {
 
             return await ctx.telegram.sendMessage(
                 ctx.chat.id,
@@ -89,79 +94,90 @@ bot.on('text', async (ctx) => {
             'Processing...'
         );
 
-        // =========================
-        // Fetch API
-        // =========================
+        // ============================
+        // Get Data
+        // ============================
 
         const result = await getTikTokData(text);
 
-        // Crosscheck 1
+        // Crosscheck
         if (!result) {
 
             return await ctx.telegram.sendMessage(
                 ctx.chat.id,
-                'Gagal mengambil data TikTok'
+                'Gagal mengambil data'
             );
 
         }
 
-        // Crosscheck 2
-        if (
-            !result.play &&
-            !result.images &&
-            !result.wmplay &&
-            !result.hdplay
-        ) {
-
-            return await ctx.telegram.sendMessage(
-                ctx.chat.id,
-                'Media tidak ditemukan'
-            );
-
-        }
-
-        // =================================
+        // =========================================
         // SLIDE
-        // =================================
+        // =========================================
 
         if (
             Array.isArray(result.images) &&
             result.images.length > 0
         ) {
 
-            const media = result.images
-                .slice(0, 10)
-                .map((img, index) => ({
+            try {
 
-                    type: 'photo',
+                const media = result.images
+                    .slice(0, 10)
+                    .map((img, index) => ({
 
-                    media: img,
+                        type: 'photo',
 
-                    caption:
-                        index === 0
-                            ? `${result.title || 'TikTok Slide'}\n\nOwner: @wrrar`
-                            : undefined
+                        media: img,
 
-                }));
+                        caption:
+                            index === 0
+                                ? `${result.title || 'TikTok Slide'}\n\nOwner: @wrrar`
+                                : undefined
 
-            await ctx.telegram.sendMediaGroup(
-                ctx.chat.id,
-                media
-            );
+                    }));
 
-            return;
+                await ctx.telegram.sendMediaGroup(
+                    ctx.chat.id,
+                    media
+                );
+
+                return;
+
+            } catch (slideErr) {
+
+                console.log('SLIDE ERROR:', slideErr);
+
+                return await ctx.telegram.sendMessage(
+                    ctx.chat.id,
+                    'Gagal mengirim slide'
+                );
+            }
         }
 
-        // =================================
+        // =========================================
         // VIDEO / STORY
-        // =================================
+        // =========================================
 
         const videoUrl =
-            result.play ||
             result.hdplay ||
+            result.play ||
             result.wmplay;
 
-        if (videoUrl) {
+        // Crosscheck video
+        if (!videoUrl) {
+
+            return await ctx.telegram.sendMessage(
+                ctx.chat.id,
+                'Video tidak ditemukan'
+            );
+
+        }
+
+        // =========================================
+        // SEND VIDEO PREVIEW
+        // =========================================
+
+        try {
 
             await ctx.telegram.sendVideo(
                 ctx.chat.id,
@@ -171,21 +187,49 @@ bot.on('text', async (ctx) => {
                 {
                     caption:
                         `${result.title || 'TikTok Video'}\n\n` +
+                        `Owner: @wrrar`,
+
+                    supports_streaming: true
+                }
+            );
+
+        } catch (videoErr) {
+
+            console.log('VIDEO ERROR:', videoErr);
+
+            await ctx.telegram.sendMessage(
+                ctx.chat.id,
+                'Gagal mengirim preview video'
+            );
+        }
+
+        // =========================================
+        // SEND FULL QUALITY DOCUMENT
+        // =========================================
+
+        try {
+
+            await ctx.telegram.sendDocument(
+                ctx.chat.id,
+                {
+                    url: videoUrl
+                },
+                {
+                    caption:
+                        `Full Quality\n\n` +
                         `Owner: @wrrar`
                 }
             );
 
-            return;
+        } catch (docErr) {
+
+            console.log('DOCUMENT ERROR:', docErr);
+
+            await ctx.telegram.sendMessage(
+                ctx.chat.id,
+                'Gagal mengirim full quality'
+            );
         }
-
-        // =================================
-        // Fallback
-        // =================================
-
-        return await ctx.telegram.sendMessage(
-            ctx.chat.id,
-            'Format media tidak didukung'
-        );
 
     } catch (err) {
 
@@ -223,12 +267,21 @@ module.exports = async (req, res) => {
 
     try {
 
+        // Crosscheck body
         if (!req.body) {
 
             return res
                 .status(400)
                 .send('No Body');
 
+        }
+
+        // Crosscheck update_id
+        if (!req.body.update_id) {
+
+            return res
+                .status(400)
+                .send('Invalid Update');
         }
 
         await bot.handleUpdate(req.body);
